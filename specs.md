@@ -1,52 +1,33 @@
 # Specification: Flowctl Operations Portal PoC
 
+**Type:** Proof of concept · **Deployment:** Docker Compose
 
-
-Proof of concept
-
-Docker Compose
-
-
+> This is the original specification. For what was actually built, the deviations from this spec and the
+> verified test results, see [README.md](README.md).
 
 ## 1. Objective
 
-Build a locally runnable proof of concept using [flowctl](https://github.com/cvhariharan/flowctl?utm_source=chatgpt.com) as a replacement for Jenkins-based operational actions.
+Build a locally runnable proof of concept using [flowctl](https://github.com/cvhariharan/flowctl) as a replacement for Jenkins-based operational actions.
 
 Operators should authenticate, select one of two predefined operations, enter a query parameter, execute a GET request against the corresponding downstream service, and inspect the result.
 
-Flowctl already advertises OIDC, namespace-based RBAC, YAML-defined workflows, secrets, and execution logs under its Apache 2.0 license.&#x20;
-
-[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
-
-GitHub
-
-
+Flowctl already advertises OIDC, namespace-based RBAC, YAML-defined workflows, secrets, and execution logs under its Apache 2.0 license.
 
 ## 2. Architecture
 
+```
 Operator browser
-
-Flowctl
-
+      │
+      ▼
+Flowctl ─────────────────────────────► Keycloak (optional OIDC)
 Web UI · Workflow forms · RBAC · Execution history
-
-Keycloak
-
-Optional OIDC
-
-Service A
-
-GET /api/lookup?reference=...
-
-HTTP Basic Auth
-
-Service B
-
-GET /api/lookup?reference=...
-
-HTTP Basic Auth
-
+      │
+      ├──► Service A   GET /api/lookup?reference=...   (HTTP Basic Auth)
+      ├──► Service B   GET /api/lookup?reference=...   (HTTP Basic Auth)
+      │
+      ▼
 PostgreSQL — Flowctl persistence
+```
 
 The two authentication concerns must remain separate: operators authenticate to Flowctl, while Flowctl uses technical Basic Auth credentials for downstream requests.
 
@@ -69,27 +50,20 @@ The two authentication concerns must remain separate: operators authenticate to 
 
 Implement two selectable modes, with Keycloak as the preferred production-like configuration.
 
-Mode A — Basic Auth: Simplest initial setup, provided Flowctl supports local password authentication in the selected release. This must be verified rather than assumed.
-
-Mode B — Keycloak OIDC: Use the Authorization Code flow, ideally with PKCE. Map Keycloak users or groups to Flowctl users and roles.
+- **Mode A — Basic Auth:** Simplest initial setup, provided Flowctl supports local password authentication in the selected release. This must be verified rather than assumed.
+- **Mode B — Keycloak OIDC:** Use the Authorization Code flow, ideally with PKCE. Map Keycloak users or groups to Flowctl users and roles.
 
 For the PoC, define an `operator` role that can execute both workflows and an `admin` role that can also manage workflow definitions and access policies.
 
 ## 5. Docker Compose deployment
 
-Use the project's official [Docker Compose configuration](https://github.com/cvhariharan/flowctl/blob/master/docker-compose.yaml?utm_source=chatgpt.com) as the baseline, rather than rebuilding Flowctl configuration from scratch.
+Use the project's official [Docker Compose configuration](https://github.com/cvhariharan/flowctl/blob/master/docker-compose.yaml) as the baseline, rather than rebuilding Flowctl configuration from scratch.
 
-The upstream Compose file already defines PostgreSQL, Flowctl database migrations, Flowctl itself, and Dex as a sample OIDC identity provider. It also exposes a bootstrap administrator username and password.&#x20;
-
-[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
-
-GitHub
-
-
+The upstream Compose file already defines PostgreSQL, Flowctl database migrations, Flowctl itself, and Dex as a sample OIDC identity provider. It also exposes a bootstrap administrator username and password.
 
 For the PoC, extend that configuration with two mock downstream services and optionally replace Dex with Keycloak.
 
-Proposed project structure
+Proposed project structure:
 
 ```
 flowctl-operations-poc/
@@ -127,14 +101,14 @@ Both services use the same implementation but have different credentials and ser
 
 Example request:
 
-```
+```http
 GET /api/lookup?reference=ABC123
 Authorization: Basic <base64-credentials>
 ```
 
 Example response:
 
-```
+```json
 {
   "service": "service-a",
   "reference": "ABC123",
@@ -153,7 +127,7 @@ Create two independent workflows with the same input contract.
 
 The following shows the intended workflow structure, based on Flowctl's documented YAML format. The HTTP executor configuration and secret references still need to be verified against the selected release.
 
-```
+```yaml
 metadata:
   id: lookup_service_a
   name: Lookup Service A
@@ -178,13 +152,7 @@ For Service B, use the same structure with a separate workflow ID, URL, and cred
 
 The implementation must use a supported Flowctl executor. If there is no native HTTP executor, a command-based HTTP client can be used, but it must not interpolate untrusted input into shell commands. Pass validated input through environment variables or structured arguments and use proper URL encoding.
 
-The upstream example documents a Docker executor. However, the official Compose configuration mounts the Docker socket, which introduces a significant security concern. This needs explicit evaluation before using that executor in OpenShift.&#x20;
-
-[image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
-
-GitHub+1
-
-
+The upstream example documents a Docker executor. However, the official Compose configuration mounts the Docker socket, which introduces a significant security concern. This needs explicit evaluation before using that executor in OpenShift.
 
 ## 8. Security requirements
 
@@ -222,4 +190,3 @@ First establish the official Flowctl Compose setup and confirm how its bootstrap
 Important findings from the repository: Flowctl has an official Compose example with a working OIDC demonstration using Dex, so there is no need to invent an authentication integration. The presence of a bootstrap admin password does not, however, prove that Flowctl supports a full local Basic Auth login flow for ordinary operators. That must be verified. Likewise, the HTTP execution mechanism should be checked before treating the workflow YAML as runnable.
 
 The specification above defines the intended PoC and acceptance criteria; it is not yet a tested, executable Compose implementation.
-

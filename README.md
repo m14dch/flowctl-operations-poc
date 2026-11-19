@@ -142,3 +142,7 @@ docker compose exec flowctl curl -si "http://service-a:8080/api/lookup?reference
 ```sh
 docker compose down -v   # removes the database and log volumes
 ```
+
+## License
+
+[Apache License 2.0](LICENSE). flowctl itself is a separate project, also licensed under Apache 2.0.
