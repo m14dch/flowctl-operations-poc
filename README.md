@@ -35,6 +35,7 @@ flowchart LR
 | `service-a`, `service-b` | FastAPI mock lookup services with Basic Auth (`mock-service/`) |
 
 ```
+init.sh                          # generates .env, starts the stack, does the one-time admin setup
 compose.yaml                     # whole stack (based on the upstream flowctl docker-compose.yaml)
 .env.example                     # copy to .env; all credentials live there (never committed)
 dex/config.yaml                  # Dex OIDC client and demo users
@@ -48,19 +49,28 @@ specs.md                         # original PoC specification
 
 Prerequisites: Docker with Compose v2.
 
+Requires `curl` and `openssl`.
+
 ```sh
-cp .env.example .env     # then replace every value (see the comments in the file)
-docker compose up -d --build
-docker compose ps        # all services should be healthy; flowctl-migrate exits with 0
+./init.sh
 ```
+
+`init.sh` does everything needed after a fresh clone, and is safe to re-run:
+
+1. Generates `.env` with random credentials, unless it already exists.
+2. Runs `docker compose up -d --build`.
+3. Does the one-time admin setup below through the flowctl API.
+
+To do it by hand instead, run `cp .env.example .env`, replace every value, run `docker compose up -d --build`, and
+follow the one-time setup below.
 
 Open http://localhost:7070. flowctl listens on 7000 inside the container, but on the host that port is taken by the macOS
 AirPlay Receiver, so it's published on 7070 instead.
 
 ## One-time setup (as admin)
 
-flowctl only loads flow files at startup, and only for namespaces that already exist. Secrets can only be added
-through the UI. So after the first start:
+`init.sh` does these steps automatically. flowctl only loads flow files at startup, and only for namespaces that already
+exist. Flow secrets can only be added after the flow exists. So after the first start:
 
 1. Log in with the **admin** username and password from `.env` (password login).
 2. **Create the namespace** `operations`.
@@ -68,8 +78,8 @@ through the UI. So after the first start:
 4. **Add the secrets** under each flow's *Secrets* tab, using the values from `.env`:
    - Lookup Service A: `SERVICE_A_USER`, `SERVICE_A_PASSWORD`
    - Lookup Service B: `SERVICE_B_USER`, `SERVICE_B_PASSWORD`
-5. Have `operator@flowctl.internal` log in once through **Dex**, so that the user gets created. Then, as admin, add
-   that user to namespace `operations` with the role **operator** (*Members → Add Member*).
+5. Create the user `operator@flowctl.internal` (*Users*), or let them log in once through **Dex** so the user gets
+   created automatically. Then add that user to namespace `operations` with the role **operator** (*Members → Add Member*).
 
 All of this is stored in PostgreSQL and survives restarts.
 
