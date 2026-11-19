@@ -1,0 +1,38 @@
+metadata:
+  id: lookup_service_a
+  name: Lookup Service A
+  description: Query downstream service A by reference
+  namespace: operations
+
+inputs:
+  - name: reference
+    type: string
+    label: Reference
+    description: Letters, digits, '-' and '_' (max 64 characters)
+    required: true
+    validation: reference matches "^[A-Za-z0-9_-]{1,64}$"
+
+actions:
+  - id: lookup
+    name: Execute lookup
+    executor: script
+    variables:
+      - REFERENCE: "{{ inputs.reference }}"
+      - SVC_USER: "{{ secrets.SERVICE_A_USER }}"
+      - SVC_PASSWORD: "{{ secrets.SERVICE_A_PASSWORD }}"
+    with:
+      script: |
+        set -euo pipefail
+        # The target URL is fixed here; operator input only reaches curl via an env var and
+        # --data-urlencode. Credentials are fed through a curl config on stdin, so they never
+        # appear in argv or in the execution log.
+        body=$(mktemp)
+        status=$(printf 'user = "%s:%s"\n' "$SVC_USER" "$SVC_PASSWORD" \
+          | /usr/bin/curl -sS -K - --max-time 10 -o "$body" -w '%{http_code}' \
+              --get --data-urlencode "reference=$REFERENCE" \
+              http://service-a:8080/api/lookup) || status=000
+        echo "HTTP status: $status"
+        cat "$body"; echo
+        rm -f "$body"
+        echo "HTTP_STATUS=$status" >> "$FC_OUTPUT"
+        case "$status" in 2??) ;; *) exit 1 ;; esac

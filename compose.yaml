@@ -1,0 +1,160 @@
+# Flowctl Operations Portal PoC.
+# Based on the upstream flowctl docker-compose.yaml (v0.16.0), changed as follows:
+# - images pinned, credentials moved to .env (no insecure defaults)
+# - no Docker socket or /tmp mount (flows use the script executor, not the docker executor)
+# - flows bind-mounted from ./flows, execution logs persisted in a volume
+# - two mock downstream services, reachable only inside the compose network
+
+x-flowctl-env: &flowctl-env
+  # Database
+  FLOWCTL_DB__HOST: postgres
+  FLOWCTL_DB__PORT: 5432
+  FLOWCTL_DB__USER: ${POSTGRES_USER:?set in .env}
+  FLOWCTL_DB__PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+  FLOWCTL_DB__DBNAME: ${POSTGRES_DB:?set in .env}
+
+  # App
+  FLOWCTL_APP__ADMIN_USERNAME: ${ADMIN_USERNAME:?set in .env}
+  FLOWCTL_APP__ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set in .env}
+  FLOWCTL_APP__FLOWS_DIRECTORY: /app/flows
+  FLOWCTL_APP__ROOT_URL: http://localhost:7070
+  FLOWCTL_APP__ADDRESS: :7000
+  FLOWCTL_APP__USE_TLS: "false"
+  FLOWCTL_APP__MAX_FILE_UPLOAD_SIZE: 104857600
+
+  # Encryption key for flowctl secrets
+  FLOWCTL_KEYSTORE__KEEPER_URL: ${KEYSTORE_KEEPER_URL:?set in .env}
+
+  # OIDC (Dex). New users land in the "default" namespace only; the admin grants
+  # access to the "operations" namespace explicitly.
+  FLOWCTL_OIDC__NAME: dex
+  FLOWCTL_OIDC__LABEL: Dex
+  FLOWCTL_OIDC__CLIENT_ID: flowctl
+  FLOWCTL_OIDC__CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?set in .env}
+  FLOWCTL_OIDC__ISSUER: http://dex:5556/dex
+  FLOWCTL_OIDC__AUTH_URL: http://localhost:5556/dex/auth
+  FLOWCTL_OIDC__TOKEN_URL: http://dex:5556/dex/token
+  FLOWCTL_OIDC__REDIRECT_URL: http://localhost:7070/auth/callback
+  FLOWCTL_OIDC__AUTO_CREATE_USERS__ENABLED: "true"
+  FLOWCTL_OIDC__AUTO_CREATE_USERS__NAMESPACE: default
+  FLOWCTL_OIDC__AUTO_CREATE_USERS__ROLE: user
+
+  # Scheduler
+  FLOWCTL_SCHEDULER__WORKERS: 5
+  FLOWCTL_SCHEDULER__CRON_SYNC_INTERVAL: 5m0s
+  FLOWCTL_SCHEDULER__FLOW_EXECUTION_TIMEOUT: 5m
+  FLOWCTL_SCHEDULER__DEFAULT_TIMEZONE: UTC
+
+  # Execution logs
+  FLOWCTL_LOGGER__BACKEND: file
+  FLOWCTL_LOGGER__LOG_DIRECTORY: /var/log/flowctl
+  FLOWCTL_LOGGER__MAX_SIZE_BYTES: 0
+  FLOWCTL_LOGGER__RETENTION_TIME: 0s
+  FLOWCTL_LOGGER__SCAN_INTERVAL: 1h0m0s
+
+  # Email notifications are disabled, but flowctl validates these settings anyway.
+  FLOWCTL_MESSENGERS__EMAIL__ENABLED: "false"
+  FLOWCTL_MESSENGERS__EMAIL__HOST: localhost
+  FLOWCTL_MESSENGERS__EMAIL__PORT: 587
+  FLOWCTL_MESSENGERS__EMAIL__FROM_ADDRESS: flowctl@flowctl.internal
+  FLOWCTL_MESSENGERS__EMAIL__MAX_CONNS: 10
+  FLOWCTL_MESSENGERS__EMAIL__SSL: none
+
+services:
+  postgres:
+    image: docker.io/postgres:17.0-alpine3.20
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    volumes:
+      - flowctl-db-data:/var/lib/postgresql/data
+
+  dex:
+    image: docker.io/dexidp/dex:v2.44.0-alpine
+    restart: unless-stopped
+    # The browser is redirected to Dex for login, so it must be reachable from the host.
+    ports:
+      - "127.0.0.1:5556:5556"
+    environment:
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?set in .env}
+    volumes:
+      - ./dex/config.yaml:/etc/dex/config.yaml:ro
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5556/dex/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  flowctl-migrate:
+    build: ./flowctl
+    image: flowctl-poc-flowctl:0.16.0
+    environment:
+      <<: *flowctl-env
+    command: ["install"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  flowctl:
+    image: flowctl-poc-flowctl:0.16.0
+    ports:
+      - "127.0.0.1:7070:7000"
+    environment:
+      <<: *flowctl-env
+    command: ["start"]
+    volumes:
+      - ./flows:/app/flows
+      - flowctl-logs:/var/log/flowctl
+    depends_on:
+      flowctl-migrate:
+        condition: service_completed_successfully
+      dex:
+        condition: service_healthy
+      service-a:
+        condition: service_healthy
+      service-b:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:7000/login"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+
+  # Mock downstream services: same image, different identity and credentials.
+  # No published ports: only reachable from inside the compose network.
+  service-a:
+    build: ./mock-service
+    image: flowctl-poc-mock-service:local
+    hostname: service-a
+    environment:
+      SERVICE_NAME: service-a
+      RESPONSE_DELAY_SECONDS: "1"
+      BASIC_USER: ${SERVICE_A_USER:?set in .env}
+      BASIC_PASSWORD: ${SERVICE_A_PASSWORD:?set in .env}
+    restart: unless-stopped
+
+  service-b:
+    image: flowctl-poc-mock-service:local
+    hostname: service-b
+    environment:
+      SERVICE_NAME: service-b
+      RESPONSE_DELAY_SECONDS: "1"
+      BASIC_USER: ${SERVICE_B_USER:?set in .env}
+      BASIC_PASSWORD: ${SERVICE_B_PASSWORD:?set in .env}
+    depends_on:
+      - service-a
+    restart: unless-stopped
+
+volumes:
+  flowctl-db-data:
+  flowctl-logs:

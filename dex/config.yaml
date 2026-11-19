@@ -1,0 +1,35 @@
+# Dex: lightweight OIDC provider used for operator login (local PoC only).
+issuer: http://dex:5556/dex
+issuerRotation:
+  - issuer: http://localhost:5556/dex
+
+storage:
+  type: sqlite3
+  config:
+    file: /var/dex/dex.db
+
+web:
+  http: 0.0.0.0:5556
+
+staticClients:
+  - id: flowctl
+    name: flowctl
+    secretEnv: OIDC_CLIENT_SECRET
+    redirectURIs:
+      - "http://localhost:7070/auth/callback"
+
+oauth2:
+  skipApprovalScreen: true
+
+enablePasswordDB: true
+
+# Demo users. Passwords: operator-demo / noaccess-demo (local PoC only).
+staticPasswords:
+  - email: "operator@flowctl.internal"
+    hash: "$2y$10$21YovT9N0JQQjSDtjjeM6uV.xprbROqfAk8A8xdcfSLCF87CT4gtK"
+    username: "operator"
+    userID: "6b0f1d0e-2c55-4c1e-9a4f-0c7a1d3e5b01"
+  - email: "noaccess@flowctl.internal"
+    hash: "$2y$10$E3dGZEDuwGRdFBsVbnQ8ye/zGOWFpGucJ0uQiOJwnQkoi/zv348Em"
+    username: "noaccess"
+    userID: "6b0f1d0e-2c55-4c1e-9a4f-0c7a1d3e5b02"
