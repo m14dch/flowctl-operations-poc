@@ -4,10 +4,26 @@ A local proof of concept for replacing Jenkins operational jobs with [flowctl](h
 Operators log in, choose **Lookup Service A** or **Lookup Service B**, and enter a `reference`. flowctl then calls
 `GET /api/lookup?reference=…` on the matching mock service, using that service's Basic Auth credentials.
 
-```
-browser ──► flowctl :7070 ──(script executor + curl, Basic Auth)──► service-a:8080 / service-b:8080
-   │            │                                                     (internal network only)
-   └──► Dex :5556 (OIDC login)     PostgreSQL (flows, users, executions, secrets)
+```mermaid
+flowchart LR
+    browser([Operator browser])
+
+    subgraph compose [Docker Compose network]
+        flowctl["flowctl :7070<br/>UI · RBAC · history"]
+        dex["Dex :5556<br/>OIDC login"]
+        pg[("PostgreSQL<br/>flows · users · executions · secrets")]
+        subgraph internal [internal only]
+            svcA["service-a :8080<br/>GET /api/lookup"]
+            svcB["service-b :8080<br/>GET /api/lookup"]
+        end
+    end
+
+    browser -->|login| dex
+    browser -->|run flow| flowctl
+    flowctl -->|verify token| dex
+    flowctl --- pg
+    flowctl -->|"curl + Basic Auth"| svcA
+    flowctl -->|"curl + Basic Auth"| svcB
 ```
 
 | Component | Purpose |
