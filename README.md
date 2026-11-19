@@ -75,6 +75,9 @@ The script a flow runs is shown on the flow's **Versions** page (`/view/operatio
 | `operator@flowctl.internal` / `operator-demo` | Dex | `operator` in `operations`: run both flows, view all executions |
 | `noaccess@flowctl.internal` / `noaccess-demo` | Dex | only the empty `default` namespace: can't see or run the flows |
 
+**OIDC is used for authentication only.** flowctl doesn't read groups or roles from the identity provider. All
+authorization (namespace roles, groups) is configured in flowctl itself, through the UI or the REST API.
+
 Every OIDC user is created automatically on first login, with the role `user` in the `default` namespace only. Access to
 `operations` has to be granted explicitly. The Dex users and passwords are local demo values.
 
